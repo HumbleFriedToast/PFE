@@ -2,110 +2,193 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.fftpack import dct, idct
+import random
 
+# --- Helper Function ---
+def read_grayscale(path):
+    img = cv2.imread(path, 0)
+    if img is None:
+        raise FileNotFoundError(f"Image not found at: {path}")
+    return img
+
+# --- DCT Utilities ---
 def apply_dct(block):
-    """Apply 2D DCT to an 8x8 block."""
     return dct(dct(block.T, norm='ortho').T, norm='ortho')
 
 def apply_idct(block):
-    """Apply 2D inverse DCT to an 8x8 block."""
     return idct(idct(block.T, norm='ortho').T, norm='ortho')
 
-def preprocess_watermark(watermark, shape):
-    """Read and resize the watermark to match 8x8 block layout of the cover image."""
-    watermark = cv2.resize(watermark, (shape[1] // 8, shape[0] // 8))
-    _, binary = cv2.threshold(watermark, 128, 1, cv2.THRESH_BINARY) 
-    return binary
+# --- Frequency Region & Block_Size Indexing ---
+def get_freq_position(block_size, region='mid'):
+    if region == 'low':
+        return (1, 1)
+    elif region == 'mid':
+        return (block_size // 2, block_size // 2)
+    elif region == 'high':
+        return (block_size - 2, block_size - 2)
+    else:
+        raise ValueError("Region must be 'low', 'mid', or 'high'")
 
-def embed_watermark(cover, watermark_path, shape, alpha=10):
-    """Embed a binary watermark into the cover image using DCT."""
-    """Read and preprocess the watermark."""
-    watermark_binary = preprocess_watermark(watermark_path, shape)
 
-    """Embed the binary watermark into the DCT coefficients of the cover image."""
-    h_blocks = cover.shape[0] // 8
-    w_blocks = cover.shape[1] // 8
+# --- Watermark Preprocessing ---
+def preprocess_watermark(watermark_path, cover_shape, block_size):
+    watermark = cv2.imread(watermark_path, 0)
+    if watermark is None:
+        raise FileNotFoundError(f"Could not read watermark image from: {watermark_path}")
+    new_size = (cover_shape[1] // block_size, cover_shape[0] // block_size)
+    watermark = cv2.resize(watermark, new_size)
+    _, watermark_binary = cv2.threshold(watermark, 128, 1, cv2.THRESH_BINARY)
+    return watermark_binary
+
+# --- Basic DCT Embedding ---
+def embed_watermark(cover, watermark_path, block_size=8, alpha=10, region='mid'):
+    if cover.ndim == 3:
+        cover = cv2.cvtColor(cover, cv2.COLOR_BGR2GRAY)
+    watermark_binary = preprocess_watermark(watermark_path, cover.shape, block_size)
+
+    h_blocks = cover.shape[0] // block_size
+    w_blocks = cover.shape[1] // block_size
     watermarked = np.zeros_like(cover, dtype=np.float32)
+    x, y = get_freq_position(block_size, region)
 
     for i in range(h_blocks):
         for j in range(w_blocks):
-            block = cover[i*8:(i+1)*8, j*8:(j+1)*8]
+            block = cover[i*block_size:(i+1)*block_size, j*block_size:(j+1)*block_size]
             dct_block = apply_dct(block)
 
-            # Embed watermark bit at mid-frequency position
             if watermark_binary[i, j] == 1:
-                dct_block[4, 4] += alpha
+                dct_block[x, y] += alpha
             else:
-                dct_block[4, 4] -= alpha
+                dct_block[x, y] -= alpha
 
             idct_block = apply_idct(dct_block)
-            watermarked[i*8:(i+1)*8, j*8:(j+1)*8] = idct_block
+            watermarked[i*block_size:(i+1)*block_size, j*block_size:(j+1)*block_size] = idct_block
 
-    return np.clip(watermarked, 0, 255).astype(np.uint8)
+    return np.clip(watermarked, 0, 255).astype(np.uint8), watermark_binary
 
-def show_images(title1, image1, title2, image2):
-    """Display two images side by side."""
-    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-
-    # Show first image
-    axes[0].imshow(image1, cmap='gray')
-    axes[0].set_title(title1)
-    axes[0].axis('off')
-
-    # Show second image
-    axes[1].imshow(image2, cmap='gray')
-    axes[1].set_title(title2)
-    axes[1].axis('off')
-
-    plt.show()
-
-def extract_watermark(watermarked, original_shape, alpha=10):
-    h_blocks = original_shape[0] // 8
-    w_blocks = original_shape[1] // 8
+# --- Basic DCT Extraction ---
+def extract_watermark(watermarked, original_shape, block_size=8, alpha=10, region='mid'):
+    if watermarked.ndim == 3:
+        watermarked = cv2.cvtColor(watermarked, cv2.COLOR_BGR2GRAY)
+    h_blocks = original_shape[0] // block_size
+    w_blocks = original_shape[1] // block_size
     extracted = np.zeros((h_blocks, w_blocks), dtype=np.uint8)
+    x, y = get_freq_position(block_size, region)
 
     for i in range(h_blocks):
         for j in range(w_blocks):
-            block = watermarked[i*8:(i+1)*8, j*8:(j+1)*8]
-
-            # Ensure the block is grayscale
-            if len(block.shape) == 3:  # Color block
-                block = cv2.cvtColor(block, cv2.COLOR_BGR2GRAY)
-
+            block = watermarked[i*block_size:(i+1)*block_size, j*block_size:(j+1)*block_size]
             dct_block = apply_dct(block)
-
-            # Compare scalar value at mid-frequency
-            if dct_block[4, 4] > 0:
-                extracted[i, j] = 1
-            else:
-                extracted[i, j] = 0
+            extracted[i, j] = 1 if dct_block[x, y] > 0 else 0
 
     extracted_visual = cv2.resize(extracted * 255, (original_shape[1], original_shape[0]), interpolation=cv2.INTER_NEAREST)
     return extracted, extracted_visual
 
 
+# --- Mid-band QIM Robust Embedding/Extraction ---
+
+# Generate mid-band mask for 8x8 block (exclude DC and high/low extremes)
+def mid_band_mask(block_size=8):
+    return [(u, v) for u in range(block_size) for v in range(block_size)
+            if 2 <= u+v <= 6 and not (u == 0 and v == 0)]
+
+# QIM quantizer function
+def qim_quantize(value, delta, bit):
+    # bit=0: even multiple of delta, bit=1: odd multiple
+    q = np.round(value / delta)
+    if bit == 0:
+        return delta * (2 * np.round(q/2))
+    else:
+        return delta * (2 * np.round((q-1)/2) + 1)
+
+# Robust QIM Embedding
+def embed_watermark_robust(cover, watermark_path, delta=20, k=2, key=12345):
+    """
+    cover: grayscale image array
+    watermark_path: path to binary watermark image
+    delta: quantization step size
+    k: number of coefficients per block to embed
+    key: secret seed for pseudo-random selection
+    """
+    if cover.ndim == 3:
+        cover = cv2.cvtColor(cover, cv2.COLOR_BGR2GRAY)
+    # Preprocess watermark to block grid
+    blk = 8
+    wm = cv2.imread(watermark_path, 0)
+    if wm is None:
+        raise FileNotFoundError(f"Watermark not found: {watermark_path}")
+    wm = cv2.resize(wm, (cover.shape[1]//blk, cover.shape[0]//blk))
+    _, wm_bin = cv2.threshold(wm, 128, 1, cv2.THRESH_BINARY)
+
+    mask = mid_band_mask(blk)
+    watermarked = np.copy(cover).astype(np.float32)
+
+    bindex = 0
+    for i in range(cover.shape[0] // blk):
+        for j in range(cover.shape[1] // blk):
+            # DCT block
+            block = cover[i*blk:(i+1)*blk, j*blk:(j+1)*blk]
+            D = apply_dct(block)
+            # Pseudo-random mask shuffle for this block
+            random.seed(key + bindex)
+            sel = mask.copy()
+            random.shuffle(sel)
+            for idx in range(k):
+                u, v = sel[idx]
+                bit = int(wm_bin[i, j])
+                D[u, v] = qim_quantize(D[u, v], delta, bit)
+            # inverse DCT
+            watermarked[i*blk:(i+1)*blk, j*blk:(j+1)*blk] = apply_idct(D)
+            bindex += 1
+
+    return np.clip(watermarked, 0, 255).astype(np.uint8), wm_bin
+
+# Robust QIM Extraction
+def extract_watermark_robust(watermarked, shape, delta=20, k=2, key=12345):
+    if watermarked.ndim == 3:
+        watermarked = cv2.cvtColor(watermarked, cv2.COLOR_BGR2GRAY)
+    blk = 8
+    mask = mid_band_mask(blk)
+    wm_est = np.zeros((shape[0]//blk, shape[1]//blk), dtype=np.uint8)
+    bindex = 0
+    for i in range(shape[0] // blk):
+        for j in range(shape[1] // blk):
+            block = watermarked[i*blk:(i+1)*blk, j*blk:(j+1)*blk]
+            D = apply_dct(block)
+            random.seed(key + bindex)
+            sel = mask.copy()
+            random.shuffle(sel)
+            # majority vote across k coefficients
+            votes = []
+            for idx in range(k):
+                u, v = sel[idx]
+                q = D[u, v] / delta
+                votes.append(int(np.round(q) % 2))
+            wm_est[i, j] = 1 if sum(votes) >= (k/2) else 0
+            bindex += 1
+
+    visual = cv2.resize(wm_est * 255, (shape[1], shape[0]), interpolation=cv2.INTER_NEAREST)
+    return wm_est, visual
+
+# --- Comparison ---
 def compare_watermarks(original, extracted):
-    """Compare the original and extracted watermarks and calculate accuracy."""
     total_bits = original.size
     matching_bits = np.sum(original == extracted)
-    accuracy = (matching_bits / total_bits) * 100
-    return accuracy
-
-def show_comparison_with_accuracy(original_bin, extracted_bin, accuracy):
-    """Display the original and extracted watermark with accuracy info."""
-    original_visual = cv2.resize(original_bin * 255, (original_bin.shape[1]*8, original_bin.shape[0]*8), interpolation=cv2.INTER_NEAREST)
-    extracted_visual = cv2.resize(extracted_bin * 255, (extracted_bin.shape[1]*8, extracted_bin.shape[0]*8), interpolation=cv2.INTER_NEAREST)
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-
-    axes[0].imshow(original_visual, cmap='gray')
-    axes[0].set_title(f"Original Watermark                             (Accuracy: {accuracy:.2f}%)")
-    axes[0].axis('off')
-
-    axes[1].imshow(extracted_visual, cmap='gray')
-    axes[1].set_title("Extracted Watermark")
-    axes[1].axis('off')
-
-    plt.tight_layout()
-    plt.show()
-
+    return (matching_bits / total_bits) * 100
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
