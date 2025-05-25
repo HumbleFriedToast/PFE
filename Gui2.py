@@ -1,4 +1,6 @@
 import streamlit as st
+from PIL import Image
+import numpy as np
 import Script.LSB as LB
 import Script.DCT as DC
 import Script.DWT as DW
@@ -85,7 +87,6 @@ st.markdown("""
     }
 
     .stButton>button {
-        color: #EAD8BF;
         font-size: 1rem;
         padding: 0.5rem 1.5rem;
         border-radius: 0.5rem;
@@ -144,22 +145,21 @@ for i, tab in enumerate(tabs):
         with col_settings:
             if current_tab == "DCT":
                 if operation == "Embed":
-                    st.slider("DCT Quality", 1, 100, 50)
-                    st.checkbox("Use 8x8 blocks")
+                    alpha = st.slider("DCT Quality", 1, 100, 10)
+                    block8 = st.checkbox("Use 8x8 blocks")
+                    robust = st.checkbox("Robust DCT")
                 elif operation == "Extract":
                     st.checkbox("Auto-detect DCT blocks")
 
             elif current_tab == "DWT":
                 if operation == "Embed":
-                    st.selectbox("Wavelet Type", ["haar", "db1", "sym2"], key=f"wavelet_type_{current_tab}")
-                    st.slider("Decomposition Level", 1, 5, 2)
+                    dwt_level = st.slider("Decomposition Level", 1, 3, 1)
+                    embedding_strength = st.slider("Strength Level",1,10,2)
                 elif operation == "Extract":
                     st.checkbox("Preserve low-frequency band")
-
             elif current_tab == "LSB":
                 if operation == "Embed":
-                    st.number_input("Bit Depth", 1, 8, 2)
-                    st.checkbox("Grayscale only")
+                    st.number_input("Bit Depth", 1, 2, 2)
                 elif operation == "Extract":
                     st.selectbox("Recovery Mode", ["Basic", "Enhanced"])
 
@@ -171,8 +171,53 @@ for i, tab in enumerate(tabs):
             if st.button(f"{operation} Now", key=f"action_btn_{current_tab}"):
                 if operation == "Embed":
                     if cover and watermark: # type: ignore
-                        result = simulate_loading()
-                        watermark_embed_treatment(cover,watermark,current_tab) # type: ignore
+                        if current_tab == "DCT":
+                            result = simulate_loading()
+                            cover_dct = Image.open(cover)
+                            cover_dct = np.array(cover_dct)
+                            watermark_dct = Image.open(watermark)
+                            watermark_dct = np.array(watermark_dct)
+                            watermarked_dct = DC.dct_embed(cover_dct,watermark_dct)
+                            show_result = st.image(watermarked_dct, use_container_width=True)
+
+                            pass
+                        if current_tab == "LSB":
+                            result = simulate_loading()
+                            cover_lsb = Image.open(cover)
+                            cover_lsb = np.array(cover_lsb)
+                            watermark_lsb = Image.open(watermark)
+                            watermark_lsb = np.array(watermark_lsb)
+                            watermarked_lsb = LB.lsb_embed(cover_lsb,watermark_lsb)
+                            show_result = st.image(watermarked_lsb, use_container_width=True)
+
+                            pass
+                        if current_tab == "DWT":
+                            result = simulate_loading()
+                            cover_dwt = Image.open(cover)
+                            cover_dwt = np.array(cover_dwt)
+                            watermark_dwt = Image.open(watermark)
+                            watermark_dwt = np.array(watermark_dwt)
+                            watermarked_dwt = DW.embed_watermark(cover_dwt,watermark_dwt,level =dwt_level or 2,strength = embedding_strength or 2)
+                            show_result = st.image(watermarked_dwt, use_container_width=True)
+
+                            pass
+                            
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                        
                     else:
                         st.error("no cover or watermark uploaded")
                 if operation =="Extract":
