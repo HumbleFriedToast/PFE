@@ -146,8 +146,10 @@ for i, tab in enumerate(tabs):
             if current_tab == "DCT":
                 if operation == "Embed":
                     alpha = st.slider("DCT Quality", 1, 100, 10)
-                    block8 = st.checkbox("Use 8x8 blocks")
+                    block8 = st.slider("Use 8x8 blocks",8,16,8,8)
+                    freq = st.radio("Choose a frequency",("low","mid","high"))
                     robust = st.checkbox("Robust DCT")
+
                 elif operation == "Extract":
                     st.checkbox("Auto-detect DCT blocks")
 
@@ -177,7 +179,7 @@ for i, tab in enumerate(tabs):
                             cover_dct = np.array(cover_dct)
                             watermark_dct = Image.open(watermark)
                             watermark_dct = np.array(watermark_dct)
-                            watermarked_dct = DC.dct_embed(cover_dct,watermark_dct)
+                            watermarked_dct,x = DC.embed_watermark(cover_dct,watermark_dct,block_size= block8,alpha= alpha,region="low")
                             show_result = st.image(watermarked_dct, use_container_width=True)
 
                             pass

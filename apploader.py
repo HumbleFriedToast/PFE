@@ -15,8 +15,8 @@ threading.Thread(target=start_streamlit, daemon=True).start()
 webview.create_window(
     "Tatouage Numérique",
     "http://localhost:8501",
-    width=800,
-    height=650,
+    width=1000,
+    height=800,
     frameless=True,   # <- Removes window frame (title bar and borders)
     easy_drag=False   # Optional: prevents dragging if you have no UI to grab
 )

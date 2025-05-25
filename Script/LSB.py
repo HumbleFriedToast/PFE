@@ -54,35 +54,3 @@ def rotate_attack(img, angle=15):
     mat = cv2.getRotationMatrix2D(center, angle, 1.0)
     return cv2.warpAffine(img, mat, (w, h))
 
-# === Paths ===
-cover_path = r"C:\Users\dalil_vgwbs8i\Desktop\PFE\GUI\Testfield\cover.jpg"
-watermark_path = r"C:\Users\dalil_vgwbs8i\Desktop\PFE\GUI\Testfield\watermark.jpg"
-
-# === Load ===
-cover = cv2.imread(cover_path, cv2.IMREAD_GRAYSCALE)
-watermark = cv2.imread(watermark_path, cv2.IMREAD_GRAYSCALE)
-
-# === Embed ===
-watermarked = lsb_embed(cover, watermark)
-
-# === Define Attacks ===
-attacks = {
-    "original": watermarked,
-    "gaussian_blur": cv2.GaussianBlur(watermarked, (5, 5), 1),
-    "salt_and_pepper": salt_and_pepper(watermarked),
-    "jpeg_compression": jpeg_compression(watermarked),
-    "resize": resize_attack(watermarked),
-    "rotate": rotate_attack(watermarked)
-}
-
-# === Evaluation ===
-print(f"{'Attack':<20} {'PSNR':>6} {'SSIM':>6} {'BER':>6}")
-print("-" * 40)
-
-for name, attacked in attacks.items():
-    extracted = lsb_extract(attacked, watermark.shape)
-    psnr_val = psnr(cover, attacked)
-    ssim_val = ssim(cover, attacked)
-    ber_val = compute_ber(watermark, extracted)
-
-    print(f"{name:<20} {psnr_val:6.2f} {ssim_val:6.3f} {ber_val:6.3f}")

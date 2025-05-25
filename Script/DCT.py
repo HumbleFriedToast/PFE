@@ -29,22 +29,24 @@ def get_freq_position(block_size, region='mid'):
     else:
         raise ValueError("Region must be 'low', 'mid', or 'high'")
 
+def preprocess_watermark_bits(watermark_bits, cover_shape, block_size):
+    h_blocks = cover_shape[0] // block_size
+    w_blocks = cover_shape[1] // block_size
+    expected_shape = (h_blocks, w_blocks)
 
-# --- Watermark Preprocessing ---
-def preprocess_watermark(watermark_path, cover_shape, block_size):
-    watermark = cv2.imread(watermark_path, 0)
-    if watermark is None:
-        raise FileNotFoundError(f"Could not read watermark image from: {watermark_path}")
-    new_size = (cover_shape[1] // block_size, cover_shape[0] // block_size)
-    watermark = cv2.resize(watermark, new_size)
-    _, watermark_binary = cv2.threshold(watermark, 128, 1, cv2.THRESH_BINARY)
-    return watermark_binary
+    if watermark_bits.shape != expected_shape:
+        watermark_bits = cv2.resize(
+            watermark_bits.astype(np.uint8),
+            (w_blocks, h_blocks),  # (width, height)
+            interpolation=cv2.INTER_NEAREST
+        )
+        _, watermark_bits = cv2.threshold(watermark_bits, 0, 1, cv2.THRESH_BINARY)
 
-# --- Basic DCT Embedding ---
-def embed_watermark(cover, watermark_path, block_size=8, alpha=10, region='mid'):
+    return watermark_bits.astype(np.uint8)
+def embed_watermark(cover, watermark_bits, block_size=8, alpha=10, region='mid'):
     if cover.ndim == 3:
         cover = cv2.cvtColor(cover, cv2.COLOR_BGR2GRAY)
-    watermark_binary = preprocess_watermark(watermark_path, cover.shape, block_size)
+    watermark_binary = preprocess_watermark_bits(watermark_bits, cover.shape, block_size)
 
     h_blocks = cover.shape[0] // block_size
     w_blocks = cover.shape[1] // block_size
