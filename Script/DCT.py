@@ -104,46 +104,45 @@ def qim_quantize(value, delta, bit):
         return delta * (2 * np.round((q-1)/2) + 1)
 
 # Robust QIM Embedding
-def embed_watermark_robust(cover, watermark_path, delta=20, k=2, key=12345):
+def embed_watermark_robust(cover, watermark_bits, delta=20, k=2, key=12345):
     """
-    cover: grayscale image array
-    watermark_path: path to binary watermark image
+    cover: grayscale or color image as numpy array
+    watermark_bits: 2D numpy array of 0s and 1s
     delta: quantization step size
     k: number of coefficients per block to embed
     key: secret seed for pseudo-random selection
     """
     if cover.ndim == 3:
         cover = cv2.cvtColor(cover, cv2.COLOR_BGR2GRAY)
-    # Preprocess watermark to block grid
+
     blk = 8
-    wm = cv2.imread(watermark_path, 0)
-    if wm is None:
-        raise FileNotFoundError(f"Watermark not found: {watermark_path}")
-    wm = cv2.resize(wm, (cover.shape[1]//blk, cover.shape[0]//blk))
-    _, wm_bin = cv2.threshold(wm, 128, 1, cv2.THRESH_BINARY)
+    expected_shape = (cover.shape[0] // blk, cover.shape[1] // blk)
+    if watermark_bits.shape != expected_shape:
+        watermark_bits = cv2.resize(watermark_bits.astype(np.uint8), expected_shape, interpolation=cv2.INTER_NEAREST)
+        _, watermark_bits = cv2.threshold(watermark_bits, 0, 1, cv2.THRESH_BINARY)
 
     mask = mid_band_mask(blk)
     watermarked = np.copy(cover).astype(np.float32)
-
     bindex = 0
-    for i in range(cover.shape[0] // blk):
-        for j in range(cover.shape[1] // blk):
-            # DCT block
+
+    for i in range(expected_shape[0]):
+        for j in range(expected_shape[1]):
             block = cover[i*blk:(i+1)*blk, j*blk:(j+1)*blk]
             D = apply_dct(block)
-            # Pseudo-random mask shuffle for this block
+
             random.seed(key + bindex)
             sel = mask.copy()
             random.shuffle(sel)
+
+            bit = int(watermark_bits[i, j])
             for idx in range(k):
                 u, v = sel[idx]
-                bit = int(wm_bin[i, j])
                 D[u, v] = qim_quantize(D[u, v], delta, bit)
-            # inverse DCT
+
             watermarked[i*blk:(i+1)*blk, j*blk:(j+1)*blk] = apply_idct(D)
             bindex += 1
 
-    return np.clip(watermarked, 0, 255).astype(np.uint8), wm_bin
+    return np.clip(watermarked, 0, 255).astype(np.uint8), watermark_bits
 
 # Robust QIM Extraction
 def extract_watermark_robust(watermarked, shape, delta=20, k=2, key=12345):
