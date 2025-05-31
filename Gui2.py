@@ -4,6 +4,7 @@ import numpy as np
 import Script.LSB as LB
 import Script.DCT as DC
 import Script.DWT as DW
+from Script.DWT2 import preprocess_images_svd, embed_watermark_dwt_svd,extract_watermark_dwt_svd
 import time
 import cv2
 from io import BytesIO
@@ -155,16 +156,23 @@ for i, tab in enumerate(tabs):
                     alphaex = st.slider("DCT Quality", 1, 100, 10)
                     block8ex = st.slider("Use 8x8 blocks",8,16,8,8)
                     freqex = st.radio("Choose a frequency",("low","mid","high"))
+                    robustex = st.checkbox("Robust DCT")
+
             elif current_tab == "DWT":
                 if operation == "Embed":
                     dwt_level = st.slider("Decomposition Level", 1, 3, 1)
-                    embedding_strength = st.slider("Strength Level",1,10,2)
+                    wm_method = st.selectbox("Watermarking Method", ["DWT", "DWT-SVD"], key=f"method_{operation}_{current_tab}")
+                    embedding_strength = st.slider("Strength Level",1,100,60)
                 elif operation == "Extract":
-                    st.checkbox("Preserve low-frequency band")
+                    dwt_levelx = st.slider("Decomposition Level", 1, 3, 1)
+                    embedding_strengthx = st.slider("Strength Level",1,100,60)
+                    robustex = st.checkbox("Robust DWT")
+                    wm_method = st.selectbox("Watermarking Method", ["DWT", "DWT-SVD"], key=f"method_{operation}_{current_tab}")
             elif current_tab == "LSB":
                 if operation == "Embed":
-                    st.number_input("Bit Depth", 1, 2, 2)
+                    bit = st.number_input("Bit Depth", 1, 2, 2)
                 elif operation == "Extract":
+                    bit = st.number_input("Bit Depth", 1, 2, 2)
                     st.selectbox("Recovery Mode", ["Basic", "Enhanced"])
 
         # Action Button (centered)
@@ -181,7 +189,7 @@ for i, tab in enumerate(tabs):
                             cover_dct = np.array(cover_dct)
                             watermark_dct = Image.open(watermark)
                             watermark_dct = np.array(watermark_dct)
-                            watermarked_dct,watermark_binary = DC.embed_watermark(cover_dct,watermark_dct,block_size= block8,alpha= alpha,region=freq)
+                            watermarked_dct,watermark_binary = DC.embed_watermark(cover_dct,watermark_dct,alpha= alpha,region=freq)
                             show_result = st.image(watermarked_dct, use_container_width=True)
                             image_rgb = cv2.cvtColor(watermarked_dct, cv2.COLOR_BGR2RGB)
                             image_pil = Image.fromarray(image_rgb)
@@ -206,38 +214,46 @@ for i, tab in enumerate(tabs):
                             watermark_lsb = np.array(watermark_lsb)
                             watermarked_lsb = LB.lsb_embed(cover_lsb,watermark_lsb)
                             show_result = st.image(watermarked_lsb, use_container_width=True)
+                            image_rgb = cv2.cvtColor(watermarked_lsb, cv2.COLOR_BGR2RGB)
+                            image_pil = Image.fromarray(image_rgb)
+                            buf = BytesIO()
+                            image_pil.save(buf, format="jpeg")
+                            byte_im = buf.getvalue()
+
+                                # Streamlit download button
+                            st.download_button(
+                                    label="📥 Download Watermarked Image",
+                                    data=byte_im,
+                                    file_name="resultatwatermarking.jpg",
+                                    mime="image/png"
+                                )
 
                             pass
                         if current_tab == "DWT":
                             result = simulate_loading()
-                            cover_dwt = Image.open(cover)
-                            cover_dwt = np.array(cover_dwt)
-                            watermark_dwt = Image.open(watermark)
-                            watermark_dwt = np.array(watermark_dwt)
-                            if robust:
-                                pass
-                            else:
-                                watermarked_dwt = DW.embed_watermark(cover_dwt,watermark_dwt,level =dwt_level or 2,strength = embedding_strength or 2)
-                            show_result = st.image(watermarked_dwt, use_container_width=True)
+                            cover_dwt = Image.open(cover).convert("L")
+                            watermark_dwt = Image.open(watermark).convert("L")
+                            cover_dwt_np = np.array(cover_dwt)
+                            watermark_dwt_np = np.array(watermark_dwt)
 
-                            pass
-                            
+                            if wm_method == "DWT":
+                                watermarked_dwt = DW.embed_watermark(cover_dwt_np, watermark_dwt_np, level=dwt_level, strength=embedding_strength)
 
+                            elif wm_method == "DWT-SVD":
+                               
+                                pre_cover, pre_wm = preprocess_images_svd(cover_dwt_np, watermark_dwt_np)
+                                watermarked_dwt, embedding_info = embed_watermark_dwt_svd(pre_cover, pre_wm, level=dwt_level, strength=embedding_strength,subband="HH")
 
+                                # 🔐 Save embedding_info in session state
+                                st.session_state['embedding_info'] = embedding_info
 
-
-
-
-
-
-
-
-
-
-
-
-
-                        
+                            st.image(watermarked_dwt, use_container_width=True)
+                            image_rgb = cv2.cvtColor(watermarked_dwt, cv2.COLOR_GRAY2RGB)
+                            image_pil = Image.fromarray(image_rgb)
+                            buf = BytesIO()
+                            image_pil.save(buf, format="jpeg")
+                            byte_im = buf.getvalue()
+                            st.download_button("📥 Download Watermarked Image", data=byte_im, file_name="resultatwatermarking.jpg", mime="image/jpeg")
                     else:
                         st.error("no cover or watermark uploaded")
                 if operation =="Extract":
@@ -251,10 +267,31 @@ for i, tab in enumerate(tabs):
 
                             pass
                          if current_tab == "LSB":
+                            result = simulate_loading()
+                            cover_lsb = Image.open(watermarked_image)
+                            cover_lsb = np.array(cover_lsb)
+                            unwatermarked_lsb = LB.lsb_extract(cover_lsb,cover_lsb.shape)
+                            show_result = st.image(unwatermarked_lsb, use_container_width=True) 
 
 
                             pass
                          if current_tab == "DWT":
+                            result = simulate_loading()
+                            watermarked_img = Image.open(watermarked_image).convert("L")
+                            cover_dwt_np = np.array(watermarked_img)
+
+                            if wm_method == "DWT":
+                                unwatermarked_dwt = DW.extract_watermark(cover_dwt_np, cover_dwt_np.shape, level=dwt_levelx,  )
+                                st.image(unwatermarked_dwt, use_container_width=True)
+
+                            elif wm_method == "DWT-SVD":
+                                embedding_info = st.session_state.get('embedding_info', None)
+                                if "embedding_info" not in globals():
+                                    st.error("DWT-SVD extraction requires the embedding info. Embed first in the same session.")
+                                else:
+                                    extracted_wm = extract_watermark_dwt_svd(cover_dwt_np, embedding_info, level=dwt_levelx, strength=embedding_strengthx,subband="HH")
+                                    st.image(extracted_wm, use_container_width=True)
+
 
 
                             pass

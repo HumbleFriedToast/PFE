@@ -30,29 +30,53 @@ def get_freq_position(block_size, region='mid'):
         raise ValueError("Region must be 'low', 'mid', or 'high'")
 
 def preprocess_watermark_bits(watermark_bits, cover_shape, block_size):
+    """
+    Preprocess the watermark bits to ensure compatibility with the cover image.
+    Handles PNG, JPG, grayscale, and color images.
+    """
+    # Convert watermark to grayscale if it has multiple channels
+    if watermark_bits.ndim == 3:
+        watermark_bits = cv2.cvtColor(watermark_bits, cv2.COLOR_BGR2GRAY)
+
+    # Calculate the expected shape based on the cover image and block size
     h_blocks = cover_shape[0] // block_size
     w_blocks = cover_shape[1] // block_size
     expected_shape = (h_blocks, w_blocks)
 
+    # Resize the watermark to match the expected shape
     if watermark_bits.shape != expected_shape:
         watermark_bits = cv2.resize(
             watermark_bits.astype(np.uint8),
             (w_blocks, h_blocks),  # (width, height)
             interpolation=cv2.INTER_NEAREST
         )
-        _, watermark_bits = cv2.threshold(watermark_bits, 0, 1, cv2.THRESH_BINARY)
+
+    # Threshold the watermark to binary (0 or 1)
+    _, watermark_bits = cv2.threshold(watermark_bits, 128, 1, cv2.THRESH_BINARY)
 
     return watermark_bits.astype(np.uint8)
+
 def embed_watermark(cover, watermark_bits, block_size=8, alpha=10, region='mid'):
+    """
+    Embed a watermark into the cover image using DCT.
+    Handles PNG, JPG, grayscale, and color images.
+    """
+    # Convert cover image to grayscale if it has multiple channels
     if cover.ndim == 3:
         cover = cv2.cvtColor(cover, cv2.COLOR_BGR2GRAY)
+
+    # Preprocess the watermark bits
     watermark_binary = preprocess_watermark_bits(watermark_bits, cover.shape, block_size)
 
+    # Calculate the number of blocks in the cover image
     h_blocks = cover.shape[0] // block_size
     w_blocks = cover.shape[1] // block_size
     watermarked = np.zeros_like(cover, dtype=np.float32)
+
+    # Get the frequency position for embedding
     x, y = get_freq_position(block_size, region)
 
+    # Embed the watermark into the DCT coefficients
     for i in range(h_blocks):
         for j in range(w_blocks):
             block = cover[i*block_size:(i+1)*block_size, j*block_size:(j+1)*block_size]
@@ -66,6 +90,7 @@ def embed_watermark(cover, watermark_bits, block_size=8, alpha=10, region='mid')
             idct_block = apply_idct(dct_block)
             watermarked[i*block_size:(i+1)*block_size, j*block_size:(j+1)*block_size] = idct_block
 
+    # Clip the values to valid range and convert to uint8
     return np.clip(watermarked, 0, 255).astype(np.uint8), watermark_binary
 
 # --- Basic DCT Extraction ---

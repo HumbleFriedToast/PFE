@@ -67,7 +67,7 @@ def preprocess_images(cover_image: np.ndarray, watermark: np.ndarray, max_waterm
 
 def embed_watermark(cover_image: np.ndarray, watermark: np.ndarray, 
                     wavelet: str = 'sym4', level: int = 1, 
-                    strength: float = 2.0, key: int = None) -> np.ndarray:
+                    strength: float = 2.0, key: int = 40) -> np.ndarray:
     """
     Embed watermark into cover image using DWT
     """
@@ -94,7 +94,7 @@ def embed_watermark(cover_image: np.ndarray, watermark: np.ndarray,
     return np.clip(watermarked_image, 0, 255).astype(np.uint8)
 
 def extract_watermark(watermarked_image: np.ndarray, watermark_size: Tuple[int, int],
-                     wavelet: str = 'sym4', level: int = 1, key: int = None,
+                     wavelet: str = 'sym4', level: int = 1, key: int = 40,
                      threshold_factor: float = 1.5) -> np.ndarray:
     """
     Extracts the embedded watermark from a watermarked image using DWT and PN sequence correlation.
